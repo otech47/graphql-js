@@ -181,6 +181,9 @@ function buildExecutionContext(
             definition.name && definition.name.value === operationName) {
           operation = definition;
         }
+        if (!operation && operationName) {
+          operation = definition;
+        }
         break;
       case Kind.FRAGMENT_DEFINITION:
         fragments[definition.name.value] = definition;
