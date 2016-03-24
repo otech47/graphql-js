@@ -57,6 +57,7 @@ export type Node = Name
                  | EnumValueDefinition
                  | InputObjectTypeDefinition
                  | TypeExtensionDefinition
+                 | DirectiveDefinition
 
 // Name
 
@@ -76,8 +77,7 @@ export type Document = {
 
 export type Definition = OperationDefinition
                        | FragmentDefinition
-                       | TypeDefinition
-                       | TypeExtensionDefinition
+                       | TypeSystemDefinition
 
 export type OperationDefinition = {
   kind: 'OperationDefinition';
@@ -254,14 +254,24 @@ export type NonNullType = {
   type: NamedType | ListType;
 }
 
-// Type Definition
+// Type System Definition
 
-export type TypeDefinition = ObjectTypeDefinition
+export type TypeSystemDefinition = TypeDefinition
+                                 | TypeExtensionDefinition
+                                 | DirectiveDefinition
+
+export type TypeDefinition = ScalarTypeDefinition
+                           | ObjectTypeDefinition
                            | InterfaceTypeDefinition
                            | UnionTypeDefinition
-                           | ScalarTypeDefinition
                            | EnumTypeDefinition
                            | InputObjectTypeDefinition
+
+export type ScalarTypeDefinition = {
+  kind: 'ScalarTypeDefinition';
+  loc?: ?Location;
+  name: Name;
+}
 
 export type ObjectTypeDefinition = {
   kind: 'ObjectTypeDefinition';
@@ -301,12 +311,6 @@ export type UnionTypeDefinition = {
   types: Array<NamedType>;
 }
 
-export type ScalarTypeDefinition = {
-  kind: 'ScalarTypeDefinition';
-  loc?: ?Location;
-  name: Name;
-}
-
 export type EnumTypeDefinition = {
   kind: 'EnumTypeDefinition';
   loc?: ?Location;
@@ -331,4 +335,12 @@ export type TypeExtensionDefinition = {
   kind: 'TypeExtensionDefinition';
   loc?: ?Location;
   definition: ObjectTypeDefinition;
+}
+
+export type DirectiveDefinition = {
+  kind: 'DirectiveDefinition';
+  loc?: ?Location;
+  name: Name;
+  arguments?: ?Array<InputValueDefinition>;
+  locations: Array<Name>;
 }

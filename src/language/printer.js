@@ -92,7 +92,10 @@ const printDocASTReducer = {
   ListType: ({ type }) => '[' + type + ']',
   NonNullType: ({ type }) => type + '!',
 
-  // Type Definitions
+  // Type System Definitions
+
+  ScalarTypeDefinition: ({ name }) =>
+    `scalar ${name}`,
 
   ObjectTypeDefinition: ({ name, interfaces, fields }) =>
     'type ' + name + ' ' +
@@ -111,9 +114,6 @@ const printDocASTReducer = {
   UnionTypeDefinition: ({ name, types }) =>
     `union ${name} = ${join(types, ' | ')}`,
 
-  ScalarTypeDefinition: ({ name }) =>
-    `scalar ${name}`,
-
   EnumTypeDefinition: ({ name, values }) =>
     `enum ${name} ${block(values)}`,
 
@@ -123,6 +123,10 @@ const printDocASTReducer = {
     `input ${name} ${block(fields)}`,
 
   TypeExtensionDefinition: ({ definition }) => `extend ${definition}`,
+
+  DirectiveDefinition: ({ name, arguments: args, locations }) =>
+    'directive @' + name + wrap('(', join(args, ', '), ')') +
+    ' on ' + join(locations, ' | '),
 };
 
 /**

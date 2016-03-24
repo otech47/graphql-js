@@ -508,13 +508,28 @@ type Root {
     const Schema = new GraphQLSchema({ query: Root });
     const output = '\n' + printIntrospectionSchema(Schema);
     const introspectionSchema = `
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+
 type __Directive {
   name: String!
   description: String
+  locations: [__DirectiveLocation!]!
   args: [__InputValue!]!
   onOperation: Boolean!
   onFragment: Boolean!
   onField: Boolean!
+}
+
+enum __DirectiveLocation {
+  QUERY
+  MUTATION
+  SUBSCRIPTION
+  FIELD
+  FRAGMENT_DEFINITION
+  FRAGMENT_SPREAD
+  INLINE_FRAGMENT
 }
 
 type __EnumValue {

@@ -12,6 +12,7 @@ import invariant from '../jsutils/invariant';
 import isNullish from '../jsutils/isNullish';
 import keyMap from '../jsutils/keyMap';
 import { ENUM } from '../language/kinds';
+import { assertValidName } from '../utilities/assertValidName';
 import type {
   OperationDefinition,
   Field,
@@ -301,7 +302,7 @@ export type GraphQLScalarTypeConfig<InternalType> = {
 export class GraphQLObjectType {
   name: string;
   description: ?string;
-  isTypeOf: ?(value: mixed, info?: GraphQLResolveInfo) => boolean;
+  isTypeOf: ?GraphQLIsTypeOfFn;
 
   _typeConfig: GraphQLObjectTypeConfig;
   _fields: GraphQLFieldDefinitionMap;
@@ -459,13 +460,23 @@ export type GraphQLObjectTypeConfig = {
   name: string;
   interfaces?: GraphQLInterfacesThunk | Array<GraphQLInterfaceType>;
   fields: GraphQLFieldConfigMapThunk | GraphQLFieldConfigMap;
-  isTypeOf?: (value: mixed, info?: GraphQLResolveInfo) => boolean;
+  isTypeOf?: GraphQLIsTypeOfFn;
   description?: ?string
 }
 
 type GraphQLInterfacesThunk = () => Array<GraphQLInterfaceType>;
 
 type GraphQLFieldConfigMapThunk = () => GraphQLFieldConfigMap;
+
+export type GraphQLTypeResolveFn = (
+  value: mixed,
+  info?: GraphQLResolveInfo
+) => ?GraphQLObjectType
+
+export type GraphQLIsTypeOfFn = (
+  value: mixed,
+  info?: GraphQLResolveInfo
+) => boolean
 
 export type GraphQLFieldResolveFn = (
   source: mixed,
@@ -550,7 +561,7 @@ export type GraphQLFieldDefinitionMap = {
 export class GraphQLInterfaceType {
   name: string;
   description: ?string;
-  resolveType: ?(value: mixed, info?: GraphQLResolveInfo) => ?GraphQLObjectType;
+  resolveType: ?GraphQLTypeResolveFn;
 
   _typeConfig: GraphQLInterfaceTypeConfig;
   _fields: GraphQLFieldDefinitionMap;
@@ -621,7 +632,7 @@ export type GraphQLInterfaceTypeConfig = {
    * the default implementation will call `isTypeOf` on each implementing
    * Object type.
    */
-  resolveType?: (value: mixed, info?: GraphQLResolveInfo) => ?GraphQLObjectType,
+  resolveType?: GraphQLTypeResolveFn,
   description?: ?string
 };
 
@@ -653,7 +664,7 @@ export type GraphQLInterfaceTypeConfig = {
 export class GraphQLUnionType {
   name: string;
   description: ?string;
-  resolveType: ?(value: mixed, info?: GraphQLResolveInfo) => ?GraphQLObjectType;
+  resolveType: ?GraphQLTypeResolveFn;
 
   _typeConfig: GraphQLUnionTypeConfig;
   _types: Array<GraphQLObjectType>;
@@ -728,7 +739,7 @@ export type GraphQLUnionTypeConfig = {
    * the default implementation will call `isTypeOf` on each implementing
    * Object type.
    */
-  resolveType?: (value: mixed, info?: GraphQLResolveInfo) => ?GraphQLObjectType;
+  resolveType?: GraphQLTypeResolveFn;
   description?: ?string;
 };
 
@@ -1060,14 +1071,4 @@ export class GraphQLNonNull<T: GraphQLNullableType> {
   toString(): string {
     return this.ofType.toString() + '!';
   }
-}
-
-const NAME_RX = /^[_a-zA-Z][_a-zA-Z0-9]*$/;
-
-// Helper to assert that provided names are valid.
-function assertValidName(name: string): void {
-  invariant(
-    NAME_RX.test(name),
-    `Names must match /^[_a-zA-Z][_a-zA-Z0-9]*$/ but "${name}" does not.`
-  );
 }

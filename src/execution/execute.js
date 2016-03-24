@@ -21,10 +21,13 @@ import {
   GraphQLEnumType,
   GraphQLList,
   GraphQLNonNull,
+  GraphQLInterfaceType,
+  GraphQLUnionType,
   isAbstractType
 } from '../type/definition';
 import type {
   GraphQLType,
+  GraphQLLeafType,
   GraphQLAbstractType,
   GraphQLFieldDefinition,
   GraphQLResolveInfo,
@@ -189,7 +192,7 @@ function buildExecutionContext(
     }
   });
   if (!operation) {
-    if (!operationName) {
+    if (operationName) {
       throw new GraphQLError(`Unknown operation named "${operationName}".`);
     } else {
       throw new GraphQLError('Must provide an operation.');
@@ -636,6 +639,9 @@ function completeValueCatchingError(
  * value of the type by calling the `serialize` method of GraphQL type
  * definition.
  *
+ * If the field is an abstract type, determine the runtime type of the value
+ * and then complete based on that type
+ *
  * Otherwise, the field type expects a sub-selection set, and will complete the
  * value by evaluating all sub-selections.
  */
@@ -687,71 +693,149 @@ function completeValue(
     return completed;
   }
 
-  // If result is null-like, return null.
+  // If result value is null-ish (null, undefined, or NaN) then return null.
   if (isNullish(result)) {
     return null;
   }
 
   // If field type is List, complete each item in the list with the inner type
   if (returnType instanceof GraphQLList) {
-    invariant(
-      Array.isArray(result),
-      `User Error: expected iterable, but did not find one for field ${
-        info.parentType}.${info.fieldName}.`
-    );
-
-    // This is specified as a simple map, however we're optimizing the path
-    // where the list contains no Promises by avoiding creating another Promise.
-    const itemType = returnType.ofType;
-    let containsPromise = false;
-    const completedResults = result.map(item => {
-      const completedItem =
-        completeValueCatchingError(exeContext, itemType, fieldASTs, info, item);
-      if (!containsPromise && isThenable(completedItem)) {
-        containsPromise = true;
-      }
-      return completedItem;
-    });
-
-    return containsPromise ? Promise.all(completedResults) : completedResults;
+    return completeListValue(exeContext, returnType, fieldASTs, info, result);
   }
 
-  // If field type is Scalar or Enum, serialize to a valid value, returning
-  // null if serialization is not possible.
+  // If field type is a leaf type, Scalar or Enum, serialize to a valid value,
+  // returning null if serialization is not possible.
   if (returnType instanceof GraphQLScalarType ||
       returnType instanceof GraphQLEnumType) {
-    invariant(returnType.serialize, 'Missing serialize method on type');
-    const serializedResult = returnType.serialize(result);
-    return isNullish(serializedResult) ? null : serializedResult;
+    return completeLeafValue(returnType, result);
   }
 
-  // Field type must be Object, Interface or Union and expect sub-selections.
-  let runtimeType: ?GraphQLObjectType;
+  // If field type is an abstract type, Interface or Union, determine the
+  // runtime Object type and complete for that type.
+  if (returnType instanceof GraphQLInterfaceType ||
+      returnType instanceof GraphQLUnionType) {
+    return completeAbstractValue(
+      exeContext,
+      returnType,
+      fieldASTs,
+      info,
+      result
+    );
+  }
 
+  // If field type is Object, execute and complete all sub-selections.
   if (returnType instanceof GraphQLObjectType) {
-    runtimeType = returnType;
-  } else if (isAbstractType(returnType)) {
-    const abstractType = ((returnType: any): GraphQLAbstractType);
-    runtimeType = abstractType.getObjectType(result, info);
-    if (runtimeType && !abstractType.isPossibleType(runtimeType)) {
-      throw new GraphQLError(
-        `Runtime Object type "${runtimeType}" is not a possible type ` +
-        `for "${abstractType}".`,
-        fieldASTs
-      );
+    return completeObjectValue(
+      exeContext,
+      returnType,
+      fieldASTs,
+      info,
+      result
+    );
+  }
+
+  // Not reachable. All possible output types have been considered.
+  invariant(
+    false,
+    `Cannot complete value of unexpected type "${returnType}".`
+  );
+}
+
+/**
+ * Complete a list value by completing each item in the list with the
+ * inner type
+ */
+function completeListValue(
+  exeContext: ExecutionContext,
+  returnType: GraphQLList,
+  fieldASTs: Array<Field>,
+  info: GraphQLResolveInfo,
+  result: mixed
+): mixed {
+  invariant(
+    Array.isArray(result),
+    `User Error: expected iterable, but did not find one for field ${
+      info.parentType}.${info.fieldName}.`
+  );
+
+  // This is specified as a simple map, however we're optimizing the path
+  // where the list contains no Promises by avoiding creating another Promise.
+  const itemType = returnType.ofType;
+  let containsPromise = false;
+  const completedResults = result.map(item => {
+    const completedItem =
+      completeValueCatchingError(exeContext, itemType, fieldASTs, info, item);
+    if (!containsPromise && isThenable(completedItem)) {
+      containsPromise = true;
     }
+    return completedItem;
+  });
+
+  return containsPromise ? Promise.all(completedResults) : completedResults;
+}
+
+/**
+ * Complete a Scalar or Enum by serializing to a valid value, returning
+ * null if serialization is not possible.
+ */
+function completeLeafValue(
+  returnType: GraphQLLeafType,
+  result: mixed
+): mixed {
+  invariant(returnType.serialize, 'Missing serialize method on type');
+  const serializedResult = returnType.serialize(result);
+  return isNullish(serializedResult) ? null : serializedResult;
+}
+
+/**
+ * Complete a value of an abstract type by determining the runtime object type
+ * of that value, then complete the value for that type.
+ */
+function completeAbstractValue(
+  exeContext: ExecutionContext,
+  returnType: GraphQLAbstractType,
+  fieldASTs: Array<Field>,
+  info: GraphQLResolveInfo,
+  result: mixed
+): mixed {
+  const runtimeType = returnType.getObjectType(result, info);
+  if (runtimeType && !returnType.isPossibleType(runtimeType)) {
+    throw new GraphQLError(
+      `Runtime Object type "${runtimeType}" is not a possible type ` +
+      `for "${returnType}".`,
+      fieldASTs
+    );
   }
 
   if (!runtimeType) {
     return null;
   }
 
+  return completeObjectValue(
+    exeContext,
+    runtimeType,
+    fieldASTs,
+    info,
+    result
+  );
+}
+
+/**
+ * Complete an Object value by executing all sub-selections.
+ */
+function completeObjectValue(
+  exeContext: ExecutionContext,
+  returnType: GraphQLObjectType,
+  fieldASTs: Array<Field>,
+  info: GraphQLResolveInfo,
+  result: mixed
+): mixed {
   // If there is an isTypeOf predicate function, call it with the
   // current result. If isTypeOf returns false, then raise an error rather
   // than continuing execution.
-  if (runtimeType.isTypeOf && !runtimeType.isTypeOf(result, info)) {
+  if (returnType.isTypeOf && !returnType.isTypeOf(result, info)) {
     throw new GraphQLError(
-      `Expected value of type "${runtimeType}" but got: ${result}.`,
+      `Expected value of type "${returnType}" but got: ${result}.`,
       fieldASTs
     );
   }
@@ -764,7 +848,7 @@ function completeValue(
     if (selectionSet) {
       subFieldASTs = collectFields(
         exeContext,
-        runtimeType,
+        returnType,
         selectionSet,
         subFieldASTs,
         visitedFragmentNames
@@ -772,7 +856,7 @@ function completeValue(
     }
   }
 
-  return executeFields(exeContext, runtimeType, result, subFieldASTs);
+  return executeFields(exeContext, returnType, result, subFieldASTs);
 }
 
 /**
